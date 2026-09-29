@@ -30,6 +30,16 @@ const emptyConfig: AppConfig = {
 };
 
 type View = "scan" | "settings";
+const scanPreferencesKey = "scan-to-paperless:last-scan-settings";
+
+interface StoredScanSettings {
+  deviceId: string;
+  source: string;
+  mode: string;
+  resolution: number;
+  batch: string;
+  pipeline: string;
+}
 
 export function App() {
   const [view, setView] = useState<View>("scan");
@@ -37,6 +47,7 @@ export function App() {
   const [options, setOptions] = useState<ScanOptionSet | null>(null);
   const [scanDoc, setScanDoc] = useState<ScannedDocumentRef | null>(null);
   const [tags, setTags] = useState<PaperlessTag[]>([]);
+  const [mostUsedTags, setMostUsedTags] = useState<PaperlessTag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [newTag, setNewTag] = useState("");
   const [title, setTitle] = useState("");
@@ -85,8 +96,13 @@ export function App() {
   );
 
   const availableTags = useMemo(
-    () => tags.filter((tag) => !selectedTagIds.includes(tag.id)),
-    [tags, selectedTagIds]
+    () =>
+      tags.filter(
+        (tag) =>
+          !selectedTagIds.includes(tag.id) &&
+          !mostUsedTags.some((mostUsedTag) => mostUsedTag.id === tag.id)
+      ),
+    [tags, selectedTagIds, mostUsedTags]
   );
 
   async function refreshOptionsAndTags(): Promise<void> {
@@ -98,18 +114,28 @@ export function App() {
       ]);
       setOptions(scanOptions);
       setTags(tagGroups.all);
+      setMostUsedTags(tagGroups.mostUsed);
       const preferredDevice = config.scanserv.defaultDevice ?? scanOptions.devices[0]?.id ?? "";
       const sources = scanOptions.sources;
       const modes = scanOptions.modes;
       const resolutions = scanOptions.resolutions;
       const pipelines = scanOptions.pipelines;
+      const saved = loadStoredScanSettings();
+      const resolved: StoredScanSettings = {
+        deviceId: resolveStringOption(saved?.deviceId, scanOptions.devices.map((device) => device.id), preferredDevice),
+        source: resolveStringOption(saved?.source, sources, config.scanserv.defaultSource ?? sources[0] ?? ""),
+        mode: resolveStringOption(saved?.mode, modes, config.scanserv.defaultMode ?? modes[0] ?? ""),
+        resolution: resolveNumberOption(saved?.resolution, resolutions, config.scanserv.defaultResolution ?? resolutions[0] ?? 300),
+        batch: resolveStringOption(saved?.batch, scanOptions.batchModes, config.scanserv.defaultBatch ?? scanOptions.batchModes[0] ?? "none"),
+        pipeline: resolveStringOption(saved?.pipeline, pipelines, config.scanserv.defaultFormat ?? pipelines[0] ?? "")
+      };
       setScanForm({
-        deviceId: preferredDevice,
-        source: config.scanserv.defaultSource ?? sources[0] ?? "",
-        mode: config.scanserv.defaultMode ?? modes[0] ?? "",
-        resolution: config.scanserv.defaultResolution ?? resolutions[0] ?? 300,
-        batch: config.scanserv.defaultBatch ?? scanOptions.batchModes[0] ?? "none",
-        pipeline: config.scanserv.defaultFormat ?? pipelines[0] ?? ""
+        deviceId: resolved.deviceId,
+        source: resolved.source,
+        mode: resolved.mode,
+        resolution: resolved.resolution,
+        batch: resolved.batch,
+        pipeline: resolved.pipeline
       });
       setStatus("Ready");
     } catch (error) {
@@ -118,6 +144,7 @@ export function App() {
   }
 
   async function runScan(): Promise<void> {
+    persistScanSettings(scanForm);
     setWorkflow({ kind: "scanning" });
     setStatus("Scanning...");
     try {
@@ -205,6 +232,7 @@ export function App() {
       });
       setScanDoc(null);
       setSelectedTagIds([]);
+      void refreshOptionsAndTags();
     } catch (error) {
       setWorkflow({
         kind: "error",
@@ -514,6 +542,36 @@ export function App() {
               </div>
 
               <div className="tag-section">
+                <h4>Most used tags</h4>
+                <div className="chip-list" aria-label="Most used tags">
+                  {mostUsedTags.length === 0 ? (
+                    <p className="chip-empty">No most used tags yet</p>
+                  ) : (
+                    mostUsedTags.map((tag) => {
+                      const isSelected = selectedTagIds.includes(tag.id);
+                      return (
+                        <button
+                          type="button"
+                          key={tag.id}
+                          className={`chip ${isSelected ? "chip-selected" : "chip-most-used"}`}
+                          onClick={() => {
+                            if (isSelected) {
+                              unselectTag(tag.id);
+                            } else {
+                              selectTag(tag.id);
+                            }
+                          }}
+                          aria-label={`${isSelected ? "Remove" : "Select"} tag ${tag.name}`}
+                        >
+                          {tag.name}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="tag-section">
                 <h4>Available tags</h4>
                 <div className="chip-list" aria-label="Available tags">
                   {availableTags.length === 0 ? (
@@ -550,4 +608,62 @@ export function App() {
       )}
     </main>
   );
+}
+
+function loadStoredScanSettings(): StoredScanSettings | null {
+  try {
+    const raw = localStorage.getItem(scanPreferencesKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<StoredScanSettings>;
+    if (
+      typeof parsed.deviceId !== "string" ||
+      typeof parsed.source !== "string" ||
+      typeof parsed.mode !== "string" ||
+      typeof parsed.resolution !== "number" ||
+      typeof parsed.batch !== "string" ||
+      typeof parsed.pipeline !== "string"
+    ) {
+      return null;
+    }
+    return {
+      deviceId: parsed.deviceId,
+      source: parsed.source,
+      mode: parsed.mode,
+      resolution: parsed.resolution,
+      batch: parsed.batch,
+      pipeline: parsed.pipeline
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistScanSettings(settings: StoredScanSettings): void {
+  try {
+    localStorage.setItem(scanPreferencesKey, JSON.stringify(settings));
+  } catch {
+    // Ignore storage write issues in constrained/private browsing contexts.
+  }
+}
+
+function resolveStringOption(candidate: string | undefined, options: string[], fallback: string): string {
+  if (candidate && options.includes(candidate)) {
+    return candidate;
+  }
+  if (options.includes(fallback)) {
+    return fallback;
+  }
+  return options[0] ?? fallback;
+}
+
+function resolveNumberOption(candidate: number | undefined, options: number[], fallback: number): number {
+  if (candidate !== undefined && options.includes(candidate)) {
+    return candidate;
+  }
+  if (options.includes(fallback)) {
+    return fallback;
+  }
+  return options[0] ?? fallback;
 }
