@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import path from "node:path";
 import type { AppConfig, ScanRequestPayload, UploadPayload } from "../shared/models.js";
 import {
   configService,
@@ -41,6 +42,7 @@ function assertSecretsPreserved(current: AppConfig, next: AppConfig): AppConfig 
 
 export function createApp(): express.Express {
   const app = express();
+  const clientDistDir = path.resolve(process.cwd(), "dist");
   app.use(cors());
   app.use(express.json());
 
@@ -149,6 +151,11 @@ export function createApp(): express.Express {
     } catch (error) {
       next(error);
     }
+  });
+
+  app.use(express.static(clientDistDir));
+  app.get(/^(?!\/api\/).*/, (_req, res) => {
+    res.sendFile(path.join(clientDistDir, "index.html"));
   });
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
