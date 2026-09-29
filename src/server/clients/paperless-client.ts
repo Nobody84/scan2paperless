@@ -10,6 +10,15 @@ interface PaperlessTask {
   related_document?: number;
 }
 
+interface RawPaperlessTag {
+  id: number;
+  name: string;
+  color?: string | null;
+  colour?: string | null;
+  text_color?: string | null;
+  textColor?: string | null;
+}
+
 function authorization(token: string, username: string, password: string): string {
   if (token.trim().length > 0) {
     return `Token ${token}`;
@@ -92,8 +101,8 @@ export class PaperlessClient {
     let nextPath = "/api/tags/";
 
     while (nextPath) {
-      const page = await this.requestJson<PagedResponse<PaperlessTag>>(nextPath);
-      tags.push(...page.results);
+      const page = await this.requestJson<PagedResponse<RawPaperlessTag>>(nextPath);
+      tags.push(...page.results.map(normalizeTag));
       if (page.next) {
         const next = new URL(page.next);
         nextPath = `${next.pathname}${next.search}`;
@@ -110,13 +119,25 @@ export class PaperlessClient {
     if (color && color.trim()) {
       payload.color = color.trim();
     }
-    return await this.requestJson<PaperlessTag>("/api/tags/", {
+    const created = await this.requestJson<RawPaperlessTag>("/api/tags/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
     });
+    return normalizeTag(created);
+  }
+
+  async updateTagColor(tagId: number, color: string): Promise<PaperlessTag> {
+    const updated = await this.requestJson<RawPaperlessTag>(`/api/tags/${tagId}/`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ color })
+    });
+    return normalizeTag(updated);
   }
 
   async uploadDocument(payload: {
@@ -196,4 +217,13 @@ export class PaperlessClient {
     );
     return response.results;
   }
+}
+
+function normalizeTag(raw: RawPaperlessTag): PaperlessTag {
+  return {
+    id: raw.id,
+    name: raw.name,
+    color: raw.color ?? raw.colour ?? null,
+    text_color: raw.text_color ?? raw.textColor ?? null
+  };
 }

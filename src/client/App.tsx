@@ -222,7 +222,7 @@ export function App() {
     }
     try {
       const createdTag = await api.createTag(newTag.trim(), newTagColor);
-      setTags((current) => [...current, createdTag]);
+      setTags((current) => upsertTag(current, createdTag));
       setSelectedTagIds((ids) => (ids.includes(createdTag.id) ? ids : [...ids, createdTag.id]));
       setNewTag("");
       setNewTagColor("#607d8b");
@@ -237,7 +237,7 @@ export function App() {
     }
     try {
       const createdTag = await api.createTag(newSettingsTag.trim(), newSettingsTagColor);
-      setTags((current) => [...current, createdTag]);
+      setTags((current) => upsertTag(current, createdTag));
       addPredefinedTag(createdTag);
       setNewSettingsTag("");
       setNewSettingsTagColor("#607d8b");
@@ -810,4 +810,14 @@ function getContrastingTextColor(backgroundHex: string): string {
   const blue = Number.parseInt(clean.slice(4, 6), 16);
   const luma = (0.299 * red) + (0.587 * green) + (0.114 * blue);
   return luma > 186 ? "#111111" : "#ffffff";
+}
+
+function upsertTag(tags: PaperlessTag[], next: PaperlessTag): PaperlessTag[] {
+  const index = tags.findIndex((tag) => tag.id === next.id);
+  if (index < 0) {
+    return [...tags, next];
+  }
+  const updated = [...tags];
+  updated[index] = next;
+  return updated;
 }
