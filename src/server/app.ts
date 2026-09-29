@@ -124,6 +124,18 @@ export function createApp(): express.Express {
     }
   });
 
+  app.post("/api/paperless/tags/usage", async (req, res, next) => {
+    try {
+      const tagIds = Array.isArray(req.body?.tagIds)
+        ? req.body.tagIds.map((value: unknown) => Number(value)).filter((value: number) => Number.isFinite(value))
+        : [];
+      await tagService.recordUsage(tagIds);
+      res.status(204).end();
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/upload", async (req, res, next) => {
     try {
       const config = await configService.getConfig();

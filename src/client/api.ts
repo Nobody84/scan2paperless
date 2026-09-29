@@ -60,10 +60,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name })
     }),
+  recordTagUsage: async (tagIds: number[]): Promise<void> => {
+    await request<void>("/api/paperless/tags/usage", {
+      method: "POST",
+      body: JSON.stringify({ tagIds })
+    });
+  },
   upload: async (payload: UploadPayload): Promise<UploadResult> =>
     await request<UploadResult>("/api/upload", {
       method: "POST",
       body: JSON.stringify(payload)
     })
 };
-

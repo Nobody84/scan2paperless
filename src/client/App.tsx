@@ -50,6 +50,7 @@ export function App() {
   const [mostUsedTags, setMostUsedTags] = useState<PaperlessTag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [newTag, setNewTag] = useState("");
+  const [newSettingsTag, setNewSettingsTag] = useState("");
   const [title, setTitle] = useState("");
   const [created, setCreated] = useState(() => new Date().toISOString().slice(0, 10));
   const [status, setStatus] = useState("Loading...");
@@ -104,6 +105,21 @@ export function App() {
       ),
     [tags, selectedTagIds, mostUsedTags]
   );
+
+  const predefinedSelectedTags = useMemo(() => {
+    const predefined = new Set(config.paperless.predefinedTags.map((name) => name.trim().toLowerCase()));
+    return tags.filter((tag) => predefined.has(tag.name.trim().toLowerCase()));
+  }, [config.paperless.predefinedTags, tags]);
+
+  const predefinedSelectedTagIds = useMemo(
+    () => predefinedSelectedTags.map((tag) => tag.id),
+    [predefinedSelectedTags]
+  );
+
+  const predefinedAvailableTags = useMemo(() => {
+    const selectedIds = new Set(predefinedSelectedTagIds);
+    return tags.filter((tag) => !selectedIds.has(tag.id));
+  }, [tags, predefinedSelectedTagIds]);
 
   async function refreshOptionsAndTags(): Promise<void> {
     setStatus("Loading scanner options and tags...");
@@ -193,12 +209,61 @@ export function App() {
     }
   }
 
+  async function createTagFromSettings(): Promise<void> {
+    if (!newSettingsTag.trim()) {
+      return;
+    }
+    try {
+      const createdTag = await api.createTag(newSettingsTag.trim());
+      setTags((current) => [...current, createdTag]);
+      addPredefinedTag(createdTag);
+      setNewSettingsTag("");
+    } catch (error) {
+      setStatus(`Failed creating predefined tag: ${(error as Error).message}`);
+    }
+  }
+
   function selectTag(tagId: number): void {
     setSelectedTagIds((ids) => (ids.includes(tagId) ? ids : [...ids, tagId]));
   }
 
   function unselectTag(tagId: number): void {
     setSelectedTagIds((ids) => ids.filter((id) => id !== tagId));
+  }
+
+  function addPredefinedTag(tag: PaperlessTag): void {
+    setConfig((current) => {
+      const existing = new Set(current.paperless.predefinedTags.map((name) => name.trim().toLowerCase()));
+      if (existing.has(tag.name.trim().toLowerCase())) {
+        return current;
+      }
+      return {
+        ...current,
+        paperless: {
+          ...current.paperless,
+          predefinedTags: [...current.paperless.predefinedTags, tag.name]
+        }
+      };
+    });
+
+    setMostUsedTags((current) => {
+      if (current.some((value) => value.id === tag.id)) {
+        return current;
+      }
+      return [tag, ...current];
+    });
+  }
+
+  function removePredefinedTag(tag: PaperlessTag): void {
+    setConfig((current) => ({
+      ...current,
+      paperless: {
+        ...current.paperless,
+        predefinedTags: current.paperless.predefinedTags.filter(
+          (name) => name.trim().toLowerCase() !== tag.name.trim().toLowerCase()
+        )
+      }
+    }));
   }
 
   async function upload(): Promise<void> {
@@ -246,6 +311,10 @@ export function App() {
   async function saveSettings(): Promise<void> {
     try {
       await api.saveSettings(config);
+      if (predefinedSelectedTagIds.length > 0) {
+        await api.recordTagUsage(predefinedSelectedTagIds);
+      }
+      await refreshOptionsAndTags();
       setStatus("Settings saved");
     } catch (error) {
       setStatus(`Saving settings failed: ${(error as Error).message}`);
@@ -368,24 +437,56 @@ export function App() {
               }
             />
           </label>
-          <label>
-            Predefined tags (comma separated)
+          <div className="tag-section">
+            <h4>Predefined selected tags</h4>
+            <div className="chip-list" aria-label="Selected predefined tags">
+              {predefinedSelectedTags.length === 0 ? (
+                <p className="chip-empty">No predefined tags selected</p>
+              ) : (
+                predefinedSelectedTags.map((tag) => (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    className="chip chip-selected"
+                    onClick={() => removePredefinedTag(tag)}
+                    aria-label={`Remove predefined tag ${tag.name}`}
+                  >
+                    {tag.name} ×
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="tag-section">
+            <h4>Available tags</h4>
+            <div className="chip-list" aria-label="Available tags for predefined selection">
+              {predefinedAvailableTags.length === 0 ? (
+                <p className="chip-empty">No available tags</p>
+              ) : (
+                predefinedAvailableTags.map((tag) => (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    className="chip chip-available"
+                    onClick={() => addPredefinedTag(tag)}
+                    aria-label={`Add predefined tag ${tag.name}`}
+                  >
+                    {tag.name}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="row">
             <input
-              value={config.paperless.predefinedTags.join(", ")}
-              onChange={(e) =>
-                setConfig((c) => ({
-                  ...c,
-                  paperless: {
-                    ...c.paperless,
-                    predefinedTags: e.target.value
-                      .split(",")
-                      .map((value) => value.trim())
-                      .filter((value) => value.length > 0)
-                  }
-                }))
-              }
+              placeholder="Create predefined tag"
+              value={newSettingsTag}
+              onChange={(e) => setNewSettingsTag(e.target.value)}
             />
-          </label>
+            <button onClick={() => void createTagFromSettings()}>Create tag</button>
+          </div>
 
           <div className="row">
             <button onClick={() => void saveSettings()}>Save settings</button>
