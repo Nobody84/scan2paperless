@@ -43,9 +43,20 @@ export class PaperlessClient {
       }
     });
 
+    const contentType = response.headers.get("content-type") ?? "";
+
     if (!response.ok) {
       const body = await response.text();
       throw new HttpError(response.status, "paperless request failed", body);
+    }
+
+    if (!contentType.includes("application/json")) {
+      const body = await response.text();
+      throw new HttpError(
+        500,
+        "paperless response was not JSON (possible auth redirect or wrong URL)",
+        body.slice(0, 300)
+      );
     }
 
     return (await response.json()) as T;
@@ -111,9 +122,23 @@ export class PaperlessClient {
       throw new HttpError(response.status, "paperless upload failed", body);
     }
 
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const data = (await response.json()) as
+        | string
+        | { task_id?: string; taskId?: string; id?: string };
+      if (typeof data === "string") {
+        return data;
+      }
+      const taskId = data.task_id ?? data.taskId ?? data.id;
+      if (!taskId) {
+        throw new Error("Paperless upload response did not include task id");
+      }
+      return taskId;
+    }
+
     const text = await response.text();
-    const trimmed = text.trim().replace(/"/g, "");
-    return trimmed;
+    return text.trim().replace(/^"|"$/g, "");
   }
 
   async getTask(taskId: string): Promise<PaperlessTask[]> {
@@ -123,4 +148,3 @@ export class PaperlessClient {
     return response.results;
   }
 }
-
