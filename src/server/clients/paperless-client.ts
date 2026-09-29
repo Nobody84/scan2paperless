@@ -105,13 +105,17 @@ export class PaperlessClient {
     return tags;
   }
 
-  async createTag(name: string): Promise<PaperlessTag> {
+  async createTag(name: string, color?: string): Promise<PaperlessTag> {
+    const payload: { name: string; color?: string } = { name };
+    if (color && color.trim()) {
+      payload.color = color.trim();
+    }
     return await this.requestJson<PaperlessTag>("/api/tags/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ name })
+      body: JSON.stringify(payload)
     });
   }
 

@@ -117,7 +117,11 @@ export function createApp(): express.Express {
   app.post("/api/paperless/tags", async (req, res, next) => {
     try {
       const config = await configService.getConfig();
-      const tag = await tagService.ensureTag(config, String(req.body.name ?? ""));
+      const tag = await tagService.ensureTag(
+        config,
+        String(req.body.name ?? ""),
+        typeof req.body.color === "string" ? req.body.color : undefined
+      );
       res.status(201).json(tag);
     } catch (error) {
       next(error);

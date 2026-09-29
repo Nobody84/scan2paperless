@@ -40,7 +40,7 @@ export class TagService {
     };
   }
 
-  async ensureTag(config: AppConfig, rawName: string): Promise<PaperlessTag> {
+  async ensureTag(config: AppConfig, rawName: string, color?: string): Promise<PaperlessTag> {
     const name = rawName.trim();
     if (!name) {
       throw new Error("Tag name is required");
@@ -53,11 +53,10 @@ export class TagService {
     if (existing) {
       return existing;
     }
-    return await client.createTag(name);
+    return await client.createTag(name, color);
   }
 
   async recordUsage(tagIds: number[]): Promise<void> {
     await this.usageStore.recordTagUse(tagIds);
   }
 }
-

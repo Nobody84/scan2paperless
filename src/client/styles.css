@@ -107,9 +107,13 @@ button {
   border-color: #cacaca;
 }
 
-.chip-most-used {
-  background: #efe4ff;
-  border-color: #b38ae6;
+.chip-colored {
+  border-color: transparent;
+}
+
+.chip-colored-selected {
+  border-width: 2px;
+  border-style: solid;
 }
 
 .chip-empty {

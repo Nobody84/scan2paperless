@@ -50,7 +50,9 @@ export function App() {
   const [mostUsedTags, setMostUsedTags] = useState<PaperlessTag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [newTag, setNewTag] = useState("");
+  const [newTagColor, setNewTagColor] = useState("#607d8b");
   const [newSettingsTag, setNewSettingsTag] = useState("");
+  const [newSettingsTagColor, setNewSettingsTagColor] = useState("#607d8b");
   const [title, setTitle] = useState("");
   const [created, setCreated] = useState(() => new Date().toISOString().slice(0, 10));
   const [status, setStatus] = useState("Loading...");
@@ -96,15 +98,34 @@ export function App() {
     [tags, selectedTagIds]
   );
 
-  const availableTags = useMemo(
-    () =>
-      tags.filter(
-        (tag) =>
-          !selectedTagIds.includes(tag.id) &&
-          !mostUsedTags.some((mostUsedTag) => mostUsedTag.id === tag.id)
-      ),
-    [tags, selectedTagIds, mostUsedTags]
-  );
+  const availableTags = useMemo(() => {
+    const predefined = new Set(config.paperless.predefinedTags.map((name) => name.trim().toLowerCase()));
+    const usageRank = new Map<number, number>(
+      mostUsedTags.map((tag, index) => [tag.id, index])
+    );
+    return tags
+      .filter((tag) => !selectedTagIds.includes(tag.id))
+      .sort((a, b) => {
+        const aPredefined = predefined.has(a.name.trim().toLowerCase()) ? 1 : 0;
+        const bPredefined = predefined.has(b.name.trim().toLowerCase()) ? 1 : 0;
+        if (aPredefined !== bPredefined) {
+          return bPredefined - aPredefined;
+        }
+
+        const aRank = usageRank.get(a.id);
+        const bRank = usageRank.get(b.id);
+        if (aRank !== undefined || bRank !== undefined) {
+          if (aRank === undefined) {
+            return 1;
+          }
+          if (bRank === undefined) {
+            return -1;
+          }
+          return aRank - bRank;
+        }
+        return a.name.localeCompare(b.name);
+      });
+  }, [tags, selectedTagIds, mostUsedTags, config.paperless.predefinedTags]);
 
   const predefinedSelectedTags = useMemo(() => {
     const predefined = new Set(config.paperless.predefinedTags.map((name) => name.trim().toLowerCase()));
@@ -200,10 +221,11 @@ export function App() {
       return;
     }
     try {
-      const createdTag = await api.createTag(newTag.trim());
+      const createdTag = await api.createTag(newTag.trim(), newTagColor);
       setTags((current) => [...current, createdTag]);
       setSelectedTagIds((ids) => (ids.includes(createdTag.id) ? ids : [...ids, createdTag.id]));
       setNewTag("");
+      setNewTagColor("#607d8b");
     } catch (error) {
       setStatus(`Failed creating tag: ${(error as Error).message}`);
     }
@@ -214,10 +236,11 @@ export function App() {
       return;
     }
     try {
-      const createdTag = await api.createTag(newSettingsTag.trim());
+      const createdTag = await api.createTag(newSettingsTag.trim(), newSettingsTagColor);
       setTags((current) => [...current, createdTag]);
       addPredefinedTag(createdTag);
       setNewSettingsTag("");
+      setNewSettingsTagColor("#607d8b");
     } catch (error) {
       setStatus(`Failed creating predefined tag: ${(error as Error).message}`);
     }
@@ -447,7 +470,8 @@ export function App() {
                   <button
                     key={tag.id}
                     type="button"
-                    className="chip chip-selected"
+                    className={`chip ${chipClassForTag(tag, true)}`}
+                    style={chipStyleForTag(tag, true)}
                     onClick={() => removePredefinedTag(tag)}
                     aria-label={`Remove predefined tag ${tag.name}`}
                   >
@@ -468,7 +492,8 @@ export function App() {
                   <button
                     key={tag.id}
                     type="button"
-                    className="chip chip-available"
+                    className={`chip ${chipClassForTag(tag, false)}`}
+                    style={chipStyleForTag(tag, false)}
                     onClick={() => addPredefinedTag(tag)}
                     aria-label={`Add predefined tag ${tag.name}`}
                   >
@@ -484,6 +509,12 @@ export function App() {
               placeholder="Create predefined tag"
               value={newSettingsTag}
               onChange={(e) => setNewSettingsTag(e.target.value)}
+            />
+            <input
+              type="color"
+              value={newSettingsTagColor}
+              onChange={(e) => setNewSettingsTagColor(e.target.value)}
+              aria-label="New predefined tag color"
             />
             <button onClick={() => void createTagFromSettings()}>Create tag</button>
           </div>
@@ -631,43 +662,14 @@ export function App() {
                       <button
                         type="button"
                         key={tag.id}
-                        className="chip chip-selected"
+                        className={`chip ${chipClassForTag(tag, true)}`}
+                        style={chipStyleForTag(tag, true)}
                         onClick={() => unselectTag(tag.id)}
                         aria-label={`Remove tag ${tag.name}`}
                       >
                         {tag.name} ×
                       </button>
                     ))
-                  )}
-                </div>
-              </div>
-
-              <div className="tag-section">
-                <h4>Most used tags</h4>
-                <div className="chip-list" aria-label="Most used tags">
-                  {mostUsedTags.length === 0 ? (
-                    <p className="chip-empty">No most used tags yet</p>
-                  ) : (
-                    mostUsedTags.map((tag) => {
-                      const isSelected = selectedTagIds.includes(tag.id);
-                      return (
-                        <button
-                          type="button"
-                          key={tag.id}
-                          className={`chip ${isSelected ? "chip-selected" : "chip-most-used"}`}
-                          onClick={() => {
-                            if (isSelected) {
-                              unselectTag(tag.id);
-                            } else {
-                              selectTag(tag.id);
-                            }
-                          }}
-                          aria-label={`${isSelected ? "Remove" : "Select"} tag ${tag.name}`}
-                        >
-                          {tag.name}
-                        </button>
-                      );
-                    })
                   )}
                 </div>
               </div>
@@ -682,7 +684,8 @@ export function App() {
                       <button
                         type="button"
                         key={tag.id}
-                        className="chip chip-available"
+                        className={`chip ${chipClassForTag(tag, false)}`}
+                        style={chipStyleForTag(tag, false)}
                         onClick={() => selectTag(tag.id)}
                         aria-label={`Select tag ${tag.name}`}
                       >
@@ -697,6 +700,12 @@ export function App() {
                   placeholder="Create tag"
                   value={newTag}
                   onChange={(e) => setNewTag(e.target.value)}
+                />
+                <input
+                  type="color"
+                  value={newTagColor}
+                  onChange={(e) => setNewTagColor(e.target.value)}
+                  aria-label="New tag color"
                 />
                 <button onClick={() => void createTag()}>Create tag</button>
               </div>
@@ -767,4 +776,38 @@ function resolveNumberOption(candidate: number | undefined, options: number[], f
     return fallback;
   }
   return options[0] ?? fallback;
+}
+
+function chipClassForTag(tag: PaperlessTag, selected: boolean): string {
+  if (hasHexColor(tag.color)) {
+    return selected ? "chip-colored-selected" : "chip-colored";
+  }
+  return selected ? "chip-selected" : "chip-available";
+}
+
+function chipStyleForTag(tag: PaperlessTag, selected: boolean): { backgroundColor?: string; color?: string; borderColor?: string } {
+  if (!hasHexColor(tag.color)) {
+    return {};
+  }
+  const textColor = hasHexColor(tag.text_color)
+    ? tag.text_color
+    : getContrastingTextColor(tag.color);
+  return {
+    backgroundColor: tag.color,
+    color: textColor,
+    borderColor: selected ? "#2b2b2b" : tag.color
+  };
+}
+
+function hasHexColor(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value.trim());
+}
+
+function getContrastingTextColor(backgroundHex: string): string {
+  const clean = backgroundHex.replace("#", "");
+  const red = Number.parseInt(clean.slice(0, 2), 16);
+  const green = Number.parseInt(clean.slice(2, 4), 16);
+  const blue = Number.parseInt(clean.slice(4, 6), 16);
+  const luma = (0.299 * red) + (0.587 * green) + (0.114 * blue);
+  return luma > 186 ? "#111111" : "#ffffff";
 }

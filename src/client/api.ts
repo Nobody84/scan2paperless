@@ -55,10 +55,10 @@ export const api = {
       body: JSON.stringify(payload)
     }),
   getTags: async (): Promise<TagGroups> => await request<TagGroups>("/api/paperless/tags"),
-  createTag: async (name: string): Promise<PaperlessTag> =>
+  createTag: async (name: string, color?: string): Promise<PaperlessTag> =>
     await request<PaperlessTag>("/api/paperless/tags", {
       method: "POST",
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ name, color })
     }),
   recordTagUsage: async (tagIds: number[]): Promise<void> => {
     await request<void>("/api/paperless/tags/usage", {

@@ -64,6 +64,8 @@ export interface ScannedDocumentRef {
 export interface PaperlessTag {
   id: number;
   name: string;
+  color?: string | null;
+  text_color?: string | null;
 }
 
 export interface UploadPayload {
