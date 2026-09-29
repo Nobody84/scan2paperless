@@ -177,8 +177,8 @@ export function App() {
       });
       setStatus(
         result.documentId
-          ? `Upload complete. Paperless document #${result.documentId}`
-          : `Upload task accepted: ${result.taskId}`
+          ? `Upload complete. Paperless document #${result.documentId}${result.warning ? ` (${result.warning})` : ""}`
+          : `Upload accepted: ${result.taskId}${result.warning ? ` (${result.warning})` : ""}`
       );
       setWorkflow({
         kind: "uploaded",

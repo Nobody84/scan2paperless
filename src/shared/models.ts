@@ -76,6 +76,7 @@ export interface UploadPayload {
 export interface UploadResult {
   taskId: string;
   documentId?: number;
+  warning?: string;
 }
 
 export interface AppConfig {
@@ -102,4 +103,3 @@ export interface AppConfig {
     cleanupIntervalMinutes: number;
   };
 }
-
