@@ -44,22 +44,47 @@ export class PaperlessClient {
     });
 
     const contentType = response.headers.get("content-type") ?? "";
+    const responseText = await response.text();
+    const operation = `${init?.method ?? "GET"} ${path}`;
 
     if (!response.ok) {
-      const body = await response.text();
-      throw new HttpError(response.status, "paperless request failed", body);
-    }
-
-    if (!contentType.includes("application/json")) {
-      const body = await response.text();
       throw new HttpError(
-        500,
-        "paperless response was not JSON (possible auth redirect or wrong URL)",
-        body.slice(0, 300)
+        response.status,
+        `paperless request failed: ${operation}`,
+        {
+          contentType,
+          bodyPreview: responseText.slice(0, 300)
+        },
+        operation
       );
     }
 
-    return (await response.json()) as T;
+    if (!contentType.includes("application/json")) {
+      throw new HttpError(
+        500,
+        `paperless response was not JSON for ${operation} (possible auth redirect or wrong URL)`,
+        {
+          contentType,
+          bodyPreview: responseText.slice(0, 300)
+        },
+        operation
+      );
+    }
+
+    try {
+      return JSON.parse(responseText) as T;
+    } catch (error) {
+      throw new HttpError(
+        500,
+        `paperless returned invalid JSON for ${operation}`,
+        {
+          contentType,
+          bodyPreview: responseText.slice(0, 300),
+          parseError: error instanceof Error ? error.message : "Unknown parse error"
+        },
+        operation
+      );
+    }
   }
 
   async getTags(): Promise<PaperlessTag[]> {
@@ -119,20 +144,40 @@ export class PaperlessClient {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new HttpError(response.status, "paperless upload failed", body);
+      throw new HttpError(response.status, "paperless upload failed: POST /api/documents/post_document/", {
+        bodyPreview: body.slice(0, 300)
+      }, "POST /api/documents/post_document/");
     }
 
     const contentType = response.headers.get("content-type") ?? "";
     if (contentType.includes("application/json")) {
-      const data = (await response.json()) as
-        | string
-        | { task_id?: string; taskId?: string; id?: string };
+      const body = await response.text();
+      let data: string | { task_id?: string; taskId?: string; id?: string };
+      try {
+        data = JSON.parse(body) as string | { task_id?: string; taskId?: string; id?: string };
+      } catch (error) {
+        throw new HttpError(
+          500,
+          "paperless upload returned invalid JSON",
+          {
+            contentType,
+            bodyPreview: body.slice(0, 300),
+            parseError: error instanceof Error ? error.message : "Unknown parse error"
+          },
+          "POST /api/documents/post_document/"
+        );
+      }
       if (typeof data === "string") {
         return data;
       }
       const taskId = data.task_id ?? data.taskId ?? data.id;
       if (!taskId) {
-        throw new Error("Paperless upload response did not include task id");
+        throw new HttpError(
+          500,
+          "Paperless upload response did not include task id",
+          { response: data },
+          "POST /api/documents/post_document/"
+        );
       }
       return taskId;
     }

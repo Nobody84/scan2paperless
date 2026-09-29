@@ -1,4 +1,5 @@
 import type { AppConfig, UploadPayload, UploadResult } from "../../shared/models.js";
+import { HttpError } from "../clients/http-error.js";
 import { PaperlessClient } from "../clients/paperless-client.js";
 import { FileLifecycleService } from "./file-lifecycle-service.js";
 import { TagService } from "./tag-service.js";
@@ -44,10 +45,17 @@ export class UploadService {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
-    if (documentId) {
-      await this.tags.recordUsage(payload.tagIds);
-      await this.files.removeScan(payload.scanId);
+    if (!documentId) {
+      throw new HttpError(
+        502,
+        "Paperless upload task accepted, but related document was not found via /api/tasks polling",
+        { taskId, pollAttempts: 20 },
+        "GET /api/tasks/?task_id=..."
+      );
     }
+
+    await this.tags.recordUsage(payload.tagIds);
+    await this.files.removeScan(payload.scanId);
 
     return { taskId, documentId };
   }

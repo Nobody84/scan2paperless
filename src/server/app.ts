@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import path from "node:path";
 import type { AppConfig, ScanRequestPayload, UploadPayload } from "../shared/models.js";
+import { HttpError } from "./clients/http-error.js";
 import {
   configService,
   fileLifecycleService,
@@ -159,6 +160,19 @@ export function createApp(): express.Express {
   });
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (error instanceof HttpError) {
+      const details =
+        typeof error.details === "string"
+          ? error.details.slice(0, 300)
+          : error.details;
+      res.status(error.status).json({
+        message: error.message,
+        operation: error.operation,
+        details
+      });
+      return;
+    }
+
     const message = error instanceof Error ? error.message : "Unknown server error";
     res.status(500).json({ message });
   });
