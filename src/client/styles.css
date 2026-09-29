@@ -69,3 +69,45 @@ button {
   margin-bottom: 12px;
 }
 
+.tag-section {
+  margin-bottom: 12px;
+}
+
+.tag-section h4 {
+  margin: 0 0 8px 0;
+}
+
+.chip-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid #d6d6d6;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.chip {
+  width: auto;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 14px;
+}
+
+.chip-selected {
+  background: #d8e8ff;
+  border-color: #6ca0f6;
+}
+
+.chip-available {
+  background: #f1f1f1;
+  border-color: #cacaca;
+}
+
+.chip-empty {
+  margin: 0;
+  color: #666;
+}

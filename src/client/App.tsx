@@ -79,6 +79,16 @@ export function App() {
     return `/api/scan/file/${encodeURIComponent(scanDoc.scanId)}`;
   }, [scanDoc]);
 
+  const selectedTags = useMemo(
+    () => tags.filter((tag) => selectedTagIds.includes(tag.id)),
+    [tags, selectedTagIds]
+  );
+
+  const availableTags = useMemo(
+    () => tags.filter((tag) => !selectedTagIds.includes(tag.id)),
+    [tags, selectedTagIds]
+  );
+
   async function refreshOptionsAndTags(): Promise<void> {
     setStatus("Loading scanner options and tags...");
     try {
@@ -154,6 +164,14 @@ export function App() {
     } catch (error) {
       setStatus(`Failed creating tag: ${(error as Error).message}`);
     }
+  }
+
+  function selectTag(tagId: number): void {
+    setSelectedTagIds((ids) => (ids.includes(tagId) ? ids : [...ids, tagId]));
+  }
+
+  function unselectTag(tagId: number): void {
+    setSelectedTagIds((ids) => ids.filter((id) => id !== tagId));
   }
 
   async function upload(): Promise<void> {
@@ -474,23 +492,47 @@ export function App() {
                   onChange={(e) => setCreated(e.target.value)}
                 />
               </label>
-              <label>
-                Tags
-                <select
-                  multiple
-                  value={selectedTagIds.map(String)}
-                  onChange={(e) => {
-                    const values = Array.from(e.target.selectedOptions).map((v) => Number(v.value));
-                    setSelectedTagIds(values);
-                  }}
-                >
-                  {tags.map((tag) => (
-                    <option key={tag.id} value={tag.id}>
-                      {tag.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="tag-section">
+                <h4>Selected tags</h4>
+                <div className="chip-list" aria-label="Selected tags">
+                  {selectedTags.length === 0 ? (
+                    <p className="chip-empty">No selected tags</p>
+                  ) : (
+                    selectedTags.map((tag) => (
+                      <button
+                        type="button"
+                        key={tag.id}
+                        className="chip chip-selected"
+                        onClick={() => unselectTag(tag.id)}
+                        aria-label={`Remove tag ${tag.name}`}
+                      >
+                        {tag.name} ×
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="tag-section">
+                <h4>Available tags</h4>
+                <div className="chip-list" aria-label="Available tags">
+                  {availableTags.length === 0 ? (
+                    <p className="chip-empty">No available tags</p>
+                  ) : (
+                    availableTags.map((tag) => (
+                      <button
+                        type="button"
+                        key={tag.id}
+                        className="chip chip-available"
+                        onClick={() => selectTag(tag.id)}
+                        aria-label={`Select tag ${tag.name}`}
+                      >
+                        {tag.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
               <div className="row">
                 <input
                   placeholder="Create tag"
