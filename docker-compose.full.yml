@@ -1,0 +1,57 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scan-to-paperless:local
+    container_name: scan-to-paperless
+    environment:
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    volumes:
+      - scan-to-paperless-data:/app/data
+    depends_on:
+      - paperless
+      - scanservjs
+    restart: unless-stopped
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    container_name: paperless-ngx
+    environment:
+      PAPERLESS_REDIS: redis://paperless-redis:6379
+      PAPERLESS_TIME_ZONE: UTC
+      PAPERLESS_URL: http://localhost:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - paperless-data:/usr/src/paperless/data
+      - paperless-media:/usr/src/paperless/media
+      - paperless-export:/usr/src/paperless/export
+      - paperless-consume:/usr/src/paperless/consume
+    depends_on:
+      - paperless-redis
+    restart: unless-stopped
+
+  paperless-redis:
+    image: redis:7-alpine
+    container_name: paperless-redis
+    restart: unless-stopped
+
+  scanservjs:
+    image: sbs20/scanservjs:latest
+    container_name: scanservjs
+    ports:
+      - "8083:8080"
+    privileged: true
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+    restart: unless-stopped
+
+volumes:
+  scan-to-paperless-data:
+  paperless-data:
+  paperless-media:
+  paperless-export:
+  paperless-consume:

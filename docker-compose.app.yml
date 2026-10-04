@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scan-to-paperless:local
+    container_name: scan-to-paperless
+    environment:
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    volumes:
+      - scan-to-paperless-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  scan-to-paperless-data:

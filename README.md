@@ -46,6 +46,39 @@ npm run build
 npm test
 ```
 
+## Docker
+
+### Build image
+
+```bash
+docker build -t scan-to-paperless:local .
+```
+
+### Run only this app
+
+```bash
+docker compose -f docker-compose.app.yml up -d
+```
+
+App URL: `http://localhost:3001`
+
+### Run app + Paperless-ngx + scanservjs
+
+```bash
+docker compose -f docker-compose.full.yml up -d
+```
+
+Service URLs:
+
+- App: `http://localhost:3001`
+- Paperless-ngx: `http://localhost:8000`
+- scanservjs: `http://localhost:8083`
+
+When the full stack is running, set these in the app Settings page:
+
+- scanserv URL: `http://scanservjs:8080`
+- Paperless URL: `http://paperless:8000`
+
 ## Configuration
 
 Configuration is stored server-side in `data/config.json`.
