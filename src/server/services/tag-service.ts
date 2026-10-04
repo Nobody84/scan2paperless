@@ -53,7 +53,6 @@ export class TagService {
     if (existing) {
       if (color && color.trim() && existing.color !== color.trim()) {
         return await client.updateTagColor(existing.id, color.trim());
-      }
       return existing;
     }
     return await client.createTag(name, color);

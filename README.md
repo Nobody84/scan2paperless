@@ -12,6 +12,8 @@ Small self-hosted app to scan via scanservjs and upload to Paperless-ngx.
 
 - Server-side configuration for scanservjs and Paperless
 - Scan options loaded dynamically from scanservjs
+- Mobile-first scan view with per-setting tap dialogs, prominent scan action, and toast/error dialogs
+- Compact metadata editor with tag picker dialog and in-session last-used tag memory
 - Scan execution through scanservjs API
 - Preview and metadata editing (title/date/tags)
 - Tag retrieval and creation through Paperless API
@@ -60,4 +62,3 @@ Set these in the Settings page:
 - scanservjs OpenAPI available at `/api-docs`
 - Paperless API schema available at `/api/schema/`
 - Paperless upload endpoint: `/api/documents/post_document/`
-

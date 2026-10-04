@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api.js";
 import type {
   AppConfig,
@@ -41,6 +41,15 @@ interface StoredScanSettings {
   pipeline: string;
 }
 
+type ScanFormState = StoredScanSettings;
+type ScanSettingKey = keyof ScanFormState;
+type ToastTone = "info" | "success";
+
+interface ToastState {
+  message: string;
+  tone: ToastTone;
+}
+
 export function App() {
   const [view, setView] = useState<View>("scan");
   const [config, setConfig] = useState<AppConfig>(emptyConfig);
@@ -49,16 +58,20 @@ export function App() {
   const [tags, setTags] = useState<PaperlessTag[]>([]);
   const [mostUsedTags, setMostUsedTags] = useState<PaperlessTag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [lastSessionTagIds, setLastSessionTagIds] = useState<number[]>([]);
   const [newTag, setNewTag] = useState("");
   const [newTagColor, setNewTagColor] = useState("#607d8b");
   const [newSettingsTag, setNewSettingsTag] = useState("");
   const [newSettingsTagColor, setNewSettingsTagColor] = useState("#607d8b");
   const [title, setTitle] = useState("");
   const [created, setCreated] = useState(() => new Date().toISOString().slice(0, 10));
-  const [status, setStatus] = useState("Loading...");
+  const createdInputRef = useRef<HTMLInputElement | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const [errorDialogMessage, setErrorDialogMessage] = useState<string | null>(null);
   const [workflow, setWorkflow] = useState<ScanWorkflowState>({ kind: "idle" });
+  const [isRefreshingScanData, setIsRefreshingScanData] = useState(false);
 
-  const [scanForm, setScanForm] = useState({
+  const [scanForm, setScanForm] = useState<ScanFormState>({
     deviceId: "",
     source: "",
     mode: "",
@@ -66,15 +79,17 @@ export function App() {
     batch: "none",
     pipeline: ""
   });
+  const [activeScanSetting, setActiveScanSetting] = useState<ScanSettingKey | null>(null);
+  const [isCreateTagDialogOpen, setIsCreateTagDialogOpen] = useState(false);
+  const [isTagPickerDialogOpen, setIsTagPickerDialogOpen] = useState(false);
 
   useEffect(() => {
     void (async () => {
       try {
         const loaded = await api.getSettings();
         setConfig(loaded);
-        setStatus("Ready");
       } catch (error) {
-        setStatus(`Failed to load settings: ${(error as Error).message}`);
+        setErrorDialogMessage(`Failed to load settings: ${(error as Error).message}`);
       }
     })();
   }, []);
@@ -85,6 +100,14 @@ export function App() {
     }
     void refreshOptionsAndTags();
   }, [view]);
+
+  useEffect(() => {
+    if (!toast) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => setToast(null), 3000);
+    return () => window.clearTimeout(timeoutId);
+  }, [toast]);
 
   const fileUrl = useMemo(() => {
     if (!scanDoc) {
@@ -127,6 +150,22 @@ export function App() {
       });
   }, [tags, selectedTagIds, mostUsedTags, config.paperless.predefinedTags]);
 
+  useEffect(() => {
+    if (tags.length === 0) {
+      return;
+    }
+    const validIds = new Set(tags.map((tag) => tag.id));
+    setSelectedTagIds((current) => current.filter((id) => validIds.has(id)));
+    setLastSessionTagIds((current) => current.filter((id) => validIds.has(id)));
+  }, [tags]);
+
+  useEffect(() => {
+    if (!scanDoc) {
+      return;
+    }
+    setLastSessionTagIds(selectedTagIds);
+  }, [scanDoc, selectedTagIds]);
+
   const predefinedSelectedTags = useMemo(() => {
     const predefined = new Set(config.paperless.predefinedTags.map((name) => name.trim().toLowerCase()));
     return tags.filter((tag) => predefined.has(tag.name.trim().toLowerCase()));
@@ -142,8 +181,72 @@ export function App() {
     return tags.filter((tag) => !selectedIds.has(tag.id));
   }, [tags, predefinedSelectedTagIds]);
 
+  const deviceChoices = useMemo(
+    () => options?.devices.map((device) => ({ value: device.id, label: device.name })) ?? [],
+    [options]
+  );
+
+  const activeScanSettingChoices = useMemo(() => {
+    if (!options || !activeScanSetting) {
+      return [];
+    }
+    switch (activeScanSetting) {
+      case "deviceId":
+        return options.devices.map((device) => ({ value: device.id, label: device.name }));
+      case "source":
+        return options.sources.map((source) => ({ value: source, label: source }));
+      case "mode":
+        return options.modes.map((mode) => ({ value: mode, label: mode }));
+      case "resolution":
+        return options.resolutions.map((resolution) => ({
+          value: String(resolution),
+          label: `${resolution} dpi`
+        }));
+      case "batch":
+        return options.batchModes.map((mode) => ({ value: mode, label: mode }));
+      case "pipeline":
+        return options.pipelines.map((pipeline) => ({ value: pipeline, label: pipeline }));
+      default:
+        return [];
+    }
+  }, [activeScanSetting, options]);
+
+  const activeScanSettingLabel = useMemo(() => {
+    switch (activeScanSetting) {
+      case "deviceId":
+        return "Device";
+      case "source":
+        return "Source";
+      case "mode":
+        return "Mode";
+      case "resolution":
+        return "Resolution";
+      case "batch":
+        return "Batch";
+      case "pipeline":
+        return "Output";
+      default:
+        return "";
+    }
+  }, [activeScanSetting]);
+
+  const selectedDeviceName = useMemo(() => {
+    if (!deviceChoices.length) {
+      return scanForm.deviceId || "Not set";
+    }
+    return deviceChoices.find((choice) => choice.value === scanForm.deviceId)?.label ?? scanForm.deviceId ?? "Not set";
+  }, [deviceChoices, scanForm.deviceId]);
+
+  function showToast(message: string, tone: ToastTone = "info"): void {
+    setToast({ message, tone });
+  }
+
+  function showError(message: string): void {
+    setErrorDialogMessage(message);
+  }
+
   async function refreshOptionsAndTags(): Promise<void> {
-    setStatus("Loading scanner options and tags...");
+    setIsRefreshingScanData(true);
     try {
       const [scanOptions, tagGroups] = await Promise.all([
         api.getScanOptions(),
@@ -174,16 +277,33 @@ export function App() {
         batch: resolved.batch,
         pipeline: resolved.pipeline
       });
-      setStatus("Ready");
     } catch (error) {
-      setStatus(`Failed to load scan data: ${(error as Error).message}`);
+      showError(`Failed to load scan data: ${(error as Error).message}`);
+    } finally {
+      setIsRefreshingScanData(false);
     }
+  }
+
+  function openScanSettingDialog(settingKey: ScanSettingKey): void {
+    setActiveScanSetting(settingKey);
+  }
+
+  function closeScanSettingDialog(): void {
+    setActiveScanSetting(null);
+  }
+
+  function applyScanSetting(settingKey: ScanSettingKey, value: string): void {
+    setScanForm((current) => ({
+      ...current,
+      [settingKey]: settingKey === "resolution" ? Number(value) : value
+    }));
+    closeScanSettingDialog();
   }
 
   async function runScan(): Promise<void> {
     persistScanSettings(scanForm);
     setWorkflow({ kind: "scanning" });
-    setStatus("Scanning...");
+    showToast("Scanning...");
     try {
       const payload: ScanRequestPayload = {
         params: {
@@ -205,14 +325,15 @@ export function App() {
         mimeType: document.mimeType,
         fileName: document.fileName
       });
-      setStatus("Scan completed");
+      setSelectedTagIds(lastSessionTagIds);
+      showToast("Scan completed", "success");
     } catch (error) {
       setWorkflow({
         kind: "error",
         phase: "scan",
         message: (error as Error).message
       });
-      setStatus(`Scan failed: ${(error as Error).message}`);
+      showError(`Scan failed: ${(error as Error).message}`);
     }
   }
 
@@ -226,8 +347,10 @@ export function App() {
       setSelectedTagIds((ids) => (ids.includes(createdTag.id) ? ids : [...ids, createdTag.id]));
       setNewTag("");
       setNewTagColor("#607d8b");
+      setIsCreateTagDialogOpen(false);
+      showToast(`Tag "${createdTag.name}" created`, "success");
     } catch (error) {
-      setStatus(`Failed creating tag: ${(error as Error).message}`);
+      showError(`Failed creating tag: ${(error as Error).message}`);
     }
   }
 
@@ -241,8 +364,9 @@ export function App() {
       addPredefinedTag(createdTag);
       setNewSettingsTag("");
       setNewSettingsTagColor("#607d8b");
+      showToast(`Predefined tag "${createdTag.name}" created`, "success");
     } catch (error) {
-      setStatus(`Failed creating predefined tag: ${(error as Error).message}`);
+      showError(`Failed creating predefined tag: ${(error as Error).message}`);
     }
   }
 
@@ -291,7 +415,7 @@ export function App() {
 
   async function upload(): Promise<void> {
     if (!scanDoc) {
-      setStatus("No scanned document available");
+      showError("No scanned document available");
       return;
     }
     setWorkflow({
@@ -300,7 +424,7 @@ export function App() {
       mimeType: scanDoc.mimeType,
       fileName: scanDoc.fileName
     });
-    setStatus("Uploading to Paperless...");
+    showToast("Uploading to Paperless...");
     try {
       const result = await api.upload({
         scanId: scanDoc.scanId,
@@ -308,18 +432,20 @@ export function App() {
         created,
         tagIds: selectedTagIds
       });
-      setStatus(
+      showToast(
         result.documentId
           ? `Upload complete. Paperless document #${result.documentId}${result.warning ? ` (${result.warning})` : ""}`
-          : `Upload accepted: ${result.taskId}${result.warning ? ` (${result.warning})` : ""}`
+          : `Upload accepted: ${result.taskId}${result.warning ? ` (${result.warning})` : ""}`,
+        "success"
       );
       setWorkflow({
         kind: "uploaded",
         documentId: result.documentId,
         taskId: result.taskId
       });
+      setLastSessionTagIds(selectedTagIds);
       setScanDoc(null);
-      setSelectedTagIds([]);
+      setIsTagPickerDialogOpen(false);
       void refreshOptionsAndTags();
     } catch (error) {
       setWorkflow({
@@ -327,7 +453,7 @@ export function App() {
         phase: "upload",
         message: (error as Error).message
       });
-      setStatus(`Upload failed: ${(error as Error).message}`);
+      showError(`Upload failed: ${(error as Error).message}`);
     }
   }
 
@@ -338,44 +464,107 @@ export function App() {
         await api.recordTagUsage(predefinedSelectedTagIds);
       }
       await refreshOptionsAndTags();
-      setStatus("Settings saved");
+      showToast("Settings saved", "success");
     } catch (error) {
-      setStatus(`Saving settings failed: ${(error as Error).message}`);
+      showError(`Saving settings failed: ${(error as Error).message}`);
     }
   }
 
   async function testConnections(): Promise<void> {
     try {
-      setStatus("Testing connections...");
+      showToast("Testing connections...");
       await api.testScanserv();
       await api.testPaperless();
-      setStatus("Connection tests passed");
+      showToast("Connection tests passed", "success");
     } catch (error) {
-      setStatus(`Connection test failed: ${(error as Error).message}`);
+      showError(`Connection test failed: ${(error as Error).message}`);
     }
   }
 
   const isScanning = workflow.kind === "scanning";
   const isUploading = workflow.kind === "uploading";
 
+  function backToScanner(): void {
+    setScanDoc(null);
+    setIsTagPickerDialogOpen(false);
+    setWorkflow({ kind: "ready" });
+  }
+
+  function getScanSettingDisplay(key: ScanSettingKey): string {
+    switch (key) {
+      case "deviceId":
+        return selectedDeviceName;
+      case "source":
+        return scanForm.source || "Not set";
+      case "mode":
+        return scanForm.mode || "Not set";
+      case "resolution":
+        return `${scanForm.resolution} dpi`;
+      case "batch":
+        return scanForm.batch || "Not set";
+      case "pipeline":
+        return scanForm.pipeline || "Not set";
+      default:
+        return "";
+    }
+  }
+
+  function getScanSettingValue(key: ScanSettingKey): string {
+    return key === "resolution" ? String(scanForm.resolution) : scanForm[key];
+  }
+
+  function openCreatedDatePicker(): void {
+    const input = createdInputRef.current;
+    if (!input) {
+      return;
+    }
+    if ("showPicker" in input && typeof input.showPicker === "function") {
+      input.showPicker();
+      return;
+    }
+    input.focus();
+  }
+
   return (
     <main className="page">
       <header className="header">
-        <h1>Scan to Paperless</h1>
-        <nav>
-          <button onClick={() => setView("scan")} disabled={view === "scan"}>
-            Scan
+        {view === "settings" ? (
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => setView("scan")}
+            aria-label="Back to scan page"
+          >
+            ←
           </button>
-          <button onClick={() => setView("settings")} disabled={view === "settings"}>
-            Settings
+        ) : view === "scan" && scanDoc ? (
+          <button
+            type="button"
+            className="icon-button"
+            onClick={backToScanner}
+            aria-label="Back to scanner"
+          >
+            ←
           </button>
-        </nav>
+        ) : (
+          <span className="header-spacer" aria-hidden="true" />
+        )}
+        {view === "scan" ? (
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => setView("settings")}
+            aria-label="Open settings"
+          >
+            ⚙️
+          </button>
+        ) : (
+          <span className="header-spacer" aria-hidden="true" />
+        )}
       </header>
 
-      <p className="status">{status}</p>
-
       {view === "settings" ? (
-        <section className="card">
+        <section className={scanDoc ? "card scan-result-card" : "card"}>
           <h2>scanserv settings</h2>
           <label>
             URL
@@ -526,196 +715,292 @@ export function App() {
         </section>
       ) : (
         <section className="card">
-          <h2>Scan options</h2>
-          {!options ? (
-            <p>Loading options...</p>
-          ) : (
+          {!scanDoc && (!options || isRefreshingScanData) ? <p>Loading options...</p> : null}
+
+          {!scanDoc && options && (
             <>
-              <label>
-                Device
-                <select
-                  value={scanForm.deviceId}
-                  onChange={(e) =>
-                    setScanForm((current) => ({ ...current, deviceId: e.target.value }))
-                  }
+              <div className="scan-settings-summary" aria-label="Current scan settings">
+                <button
+                  type="button"
+                  className="scan-settings-summary-row scan-settings-button"
+                  onClick={() => openScanSettingDialog("deviceId")}
                 >
-                  {options.devices.map((device) => (
-                    <option key={device.id} value={device.id}>
-                      {device.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Source
-                <select
-                  value={scanForm.source}
-                  onChange={(e) =>
-                    setScanForm((current) => ({ ...current, source: e.target.value }))
-                  }
+                  <span className="scan-settings-label">Device</span>
+                  <span className="scan-settings-value">{getScanSettingDisplay("deviceId")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="scan-settings-summary-row scan-settings-button"
+                  onClick={() => openScanSettingDialog("source")}
                 >
-                  {options.sources.map((source) => (
-                    <option key={source} value={source}>
-                      {source}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Mode
-                <select
-                  value={scanForm.mode}
-                  onChange={(e) =>
-                    setScanForm((current) => ({ ...current, mode: e.target.value }))
-                  }
+                  <span className="scan-settings-label">Source</span>
+                  <span className="scan-settings-value">{getScanSettingDisplay("source")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="scan-settings-summary-row scan-settings-button"
+                  onClick={() => openScanSettingDialog("mode")}
                 >
-                  {options.modes.map((mode) => (
-                    <option key={mode} value={mode}>
-                      {mode}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Resolution
-                <select
-                  value={scanForm.resolution}
-                  onChange={(e) =>
-                    setScanForm((current) => ({
-                      ...current,
-                      resolution: Number(e.target.value)
-                    }))
-                  }
+                  <span className="scan-settings-label">Mode</span>
+                  <span className="scan-settings-value">{getScanSettingDisplay("mode")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="scan-settings-summary-row scan-settings-button"
+                  onClick={() => openScanSettingDialog("resolution")}
                 >
-                  {options.resolutions.map((resolution) => (
-                    <option key={resolution} value={resolution}>
-                      {resolution}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Batch
-                <select
-                  value={scanForm.batch}
-                  onChange={(e) =>
-                    setScanForm((current) => ({ ...current, batch: e.target.value }))
-                  }
+                  <span className="scan-settings-label">Resolution</span>
+                  <span className="scan-settings-value">{getScanSettingDisplay("resolution")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="scan-settings-summary-row scan-settings-button"
+                  onClick={() => openScanSettingDialog("batch")}
                 >
-                  {options.batchModes.map((mode) => (
-                    <option key={mode} value={mode}>
-                      {mode}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Output pipeline
-                <select
-                  value={scanForm.pipeline}
-                  onChange={(e) =>
-                    setScanForm((current) => ({ ...current, pipeline: e.target.value }))
-                  }
+                  <span className="scan-settings-label">Batch</span>
+                  <span className="scan-settings-value">{getScanSettingDisplay("batch")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="scan-settings-summary-row scan-settings-button"
+                  onClick={() => openScanSettingDialog("pipeline")}
                 >
-                  {options.pipelines.map((pipeline) => (
-                    <option key={pipeline} value={pipeline}>
-                      {pipeline}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button onClick={() => void runScan()} disabled={isScanning}>
-                {isScanning ? "Scanning..." : "Scan"}
+                  <span className="scan-settings-label">Output</span>
+                  <span className="scan-settings-value">{getScanSettingDisplay("pipeline")}</span>
+                </button>
+              </div>
+              <button
+                className="primary-scan-button"
+                onClick={() => void runScan()}
+                disabled={isScanning}
+              >
+                {isScanning ? "Scanning..." : "Scan now"}
               </button>
             </>
+          )}
+
+          {activeScanSetting && options && (
+            <div
+              className="dialog-overlay"
+              role="presentation"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  closeScanSettingDialog();
+                }
+              }}
+            >
+              <section
+                className="dialog-card"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="scan-settings-dialog-title"
+              >
+                <h3 id="scan-settings-dialog-title">{activeScanSettingLabel}</h3>
+                <div className="option-list">
+                  {activeScanSettingChoices.map((choice) => {
+                    const selected = choice.value === getScanSettingValue(activeScanSetting);
+                    return (
+                      <button
+                        type="button"
+                        key={choice.value}
+                        className={selected ? "option-button option-button-selected" : "option-button"}
+                        onClick={() => applyScanSetting(activeScanSetting, choice.value)}
+                      >
+                        {choice.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="dialog-actions">
+                  <button type="button" onClick={closeScanSettingDialog}>
+                    Cancel
+                  </button>
+                </div>
+              </section>
+            </div>
           )}
 
           {scanDoc && (
-            <>
-              <h2>Scanned document</h2>
-              {scanDoc.mimeType.includes("pdf") ? (
-                <iframe title="Scanned document preview" src={fileUrl} className="preview" />
-              ) : (
-                <img src={fileUrl} alt="Scanned document preview" className="preview" />
-              )}
-
-              <h3>Metadata</h3>
-              <label>
-                Title
-                <input value={title} onChange={(e) => setTitle(e.target.value)} />
-              </label>
-              <label>
-                Date
-                <input
-                  type="date"
-                  value={created}
-                  onChange={(e) => setCreated(e.target.value)}
-                />
-              </label>
-              <div className="tag-section">
-                <h4>Selected tags</h4>
-                <div className="chip-list" aria-label="Selected tags">
-                  {selectedTags.length === 0 ? (
-                    <p className="chip-empty">No selected tags</p>
-                  ) : (
-                    selectedTags.map((tag) => (
-                      <button
-                        type="button"
-                        key={tag.id}
-                        className={`chip ${chipClassForTag(tag, true)}`}
-                        style={chipStyleForTag(tag, true)}
-                        onClick={() => unselectTag(tag.id)}
-                        aria-label={`Remove tag ${tag.name}`}
-                      >
-                        {tag.name} ×
-                      </button>
-                    ))
-                  )}
-                </div>
+            <div className="scan-result-layout">
+              <div className="scan-preview-area">
+                {scanDoc.mimeType.includes("pdf") ? (
+                  <iframe title="Scanned document preview" src={fileUrl} className="preview preview-dominant" />
+                ) : (
+                  <img src={fileUrl} alt="Scanned document preview" className="preview preview-dominant" />
+                )}
               </div>
 
-              <div className="tag-section">
-                <h4>Available tags</h4>
-                <div className="chip-list" aria-label="Available tags">
-                  {availableTags.length === 0 ? (
-                    <p className="chip-empty">No available tags</p>
-                  ) : (
-                    availableTags.map((tag) => (
-                      <button
-                        type="button"
-                        key={tag.id}
-                        className={`chip ${chipClassForTag(tag, false)}`}
-                        style={chipStyleForTag(tag, false)}
-                        onClick={() => selectTag(tag.id)}
-                        aria-label={`Select tag ${tag.name}`}
-                      >
-                        {tag.name}
-                      </button>
-                    ))
-                  )}
+              <div className="scan-bottom-panel">
+                <div className="metadata-panel">
+                  <h3 className="metadata-heading">Metadata &amp; tags</h3>
+                <div className="metadata-compact">
+                  <div className="metadata-grid">
+                    <label>
+                      Title
+                      <input value={title} onChange={(e) => setTitle(e.target.value)} />
+                    </label>
+                    <label>
+                      Date
+                      <div className="date-entry-row">
+                        <input
+                          ref={createdInputRef}
+                          type="date"
+                          value={created}
+                          onChange={(e) => setCreated(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="icon-button date-picker-button"
+                          onClick={openCreatedDatePicker}
+                          aria-label="Open date picker"
+                        >
+                          📅
+                        </button>
+                      </div>
+                    </label>
+                  </div>
+                  <div className="metadata-tags-header">
+                    <span className="metadata-tags-label">Tags</span>
+                    <button
+                      type="button"
+                      className="icon-button metadata-add-tag-button"
+                      onClick={() => setIsCreateTagDialogOpen(true)}
+                      aria-label="Create tag"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="metadata-tags-trigger"
+                    onClick={() => setIsTagPickerDialogOpen(true)}
+                  >
+                    <div className="chip-list metadata-tags-preview" aria-label="Selected tags">
+                      {selectedTags.length === 0 ? (
+                        <p className="chip-empty">No selected tags</p>
+                      ) : (
+                        selectedTags.map((tag) => (
+                          <span
+                            key={tag.id}
+                            className={`chip ${chipClassForTag(tag, true)}`}
+                            style={chipStyleForTag(tag, true)}
+                          >
+                            {tag.name}
+                          </span>
+                        ))
+                      )}
+                    </div>
+                  </button>
                 </div>
+                </div>
+                <button className="primary-upload-button" onClick={() => void upload()} disabled={isUploading}>
+                  {isUploading ? "Uploading..." : "Upload to Paperless"}
+                </button>
               </div>
-              <div className="row">
-                <input
-                  placeholder="Create tag"
-                  value={newTag}
-                  onChange={(e) => setNewTag(e.target.value)}
-                />
-                <input
-                  type="color"
-                  value={newTagColor}
-                  onChange={(e) => setNewTagColor(e.target.value)}
-                  aria-label="New tag color"
-                />
-                <button onClick={() => void createTag()}>Create tag</button>
-              </div>
-              <button onClick={() => void upload()} disabled={isUploading}>
-                {isUploading ? "Uploading..." : "Upload to Paperless"}
-              </button>
-            </>
+            </div>
           )}
         </section>
       )}
+
+      {isCreateTagDialogOpen && (
+        <div
+          className="dialog-overlay"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsCreateTagDialogOpen(false);
+            }
+          }}
+        >
+          <section className="dialog-card" role="dialog" aria-modal="true" aria-labelledby="create-tag-dialog-title">
+            <h3 id="create-tag-dialog-title">Create tag</h3>
+            <label>
+              Name
+              <input
+                placeholder="Tag name"
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value)}
+                autoFocus
+              />
+            </label>
+            <label>
+              Color
+              <input
+                type="color"
+                value={newTagColor}
+                onChange={(e) => setNewTagColor(e.target.value)}
+                aria-label="New tag color"
+              />
+            </label>
+            <div className="dialog-actions">
+              <button type="button" onClick={() => setIsCreateTagDialogOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" onClick={() => void createTag()}>
+                Create
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {isTagPickerDialogOpen && scanDoc && (
+        <div
+          className="dialog-overlay"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsTagPickerDialogOpen(false);
+            }
+          }}
+        >
+          <section className="dialog-card" role="dialog" aria-modal="true" aria-labelledby="tag-picker-dialog-title">
+            <h3 id="tag-picker-dialog-title">Select tags</h3>
+            <div className="chip-list" aria-label="Tag picker">
+              {availableTags.concat(selectedTags).length === 0 ? (
+                <p className="chip-empty">No tags available</p>
+              ) : (
+                [...selectedTags, ...availableTags].map((tag) => {
+                  const selected = selectedTagIds.includes(tag.id);
+                  return (
+                    <button
+                      type="button"
+                      key={tag.id}
+                      className={`chip ${chipClassForTag(tag, selected)}`}
+                      style={chipStyleForTag(tag, selected)}
+                      onClick={() => (selected ? unselectTag(tag.id) : selectTag(tag.id))}
+                    >
+                      {tag.name}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            <div className="dialog-actions">
+              <button type="button" onClick={() => setIsTagPickerDialogOpen(false)}>
+                Done
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {errorDialogMessage && (
+        <div className="dialog-overlay" role="presentation">
+          <section className="dialog-card" role="alertdialog" aria-modal="true" aria-labelledby="error-dialog-title">
+            <h3 id="error-dialog-title">Error</h3>
+            <p>{errorDialogMessage}</p>
+            <div className="dialog-actions">
+              <button type="button" onClick={() => setErrorDialogMessage(null)}>
+                OK
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {toast && <div className={`toast toast-${toast.tone}`}>{toast.message}</div>}
     </main>
   );
 }
